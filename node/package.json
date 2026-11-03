@@ -1,0 +1,19 @@
+{
+  "name": "policy-agent-evals",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "agent": "node src/agent.js",
+    "evals": "node evals/runEvals.js",
+    "bootstrap": "node bootstrap/bootstrap.js"
+  },
+  "dependencies": {
+    "@launchdarkly/ai-node": "1.0.0",
+    "@launchdarkly/ai-openai-messages": "1.0.0",
+    "@launchdarkly/ai-otel": "1.0.0"
+  }
+}
