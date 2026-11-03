@@ -8,17 +8,15 @@
  * Creates, in LD_PROJECT_KEY:
  * - tool `search_member_policy`
  * - judges `policy-accuracy` and `policy-tool-use`
- * - AI Config `policy-agent` with variations `grounded` and `concise`, the
- *   judges attached, `grounded` as the production fallthrough, and Platinum
- *   members targeted to `concise`
+ * - AI Config `policy-agent` (or LD_AI_CONFIG_KEY) with variations `grounded` and
+ *   `concise`, the judges attached, `grounded` as the production fallthrough, and
+ *   Platinum members targeted to `concise`
  *
  * Needs LD_API_TOKEN with permission to write AI Configs in the project.
  */
 
-import { loadEnv } from '../src/env.js';
+import { CONFIG_KEY } from '../src/agent.js';
 import { TOOLS } from '../src/tools.js';
-
-loadEnv();
 
 const BASE = (process.env.LD_API_BASE_URI ?? 'https://app.launchdarkly.com').replace(/\/+$/, '');
 const ENVIRONMENT = process.env.LD_ENVIRONMENT_KEY ?? 'production';
@@ -65,40 +63,55 @@ async function request(method, path, body, semantic = false) {
     headers: { Authorization: process.env.LD_API_TOKEN, 'LD-API-Version': 'beta', 'Content-Type': contentType },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const raw = await resp.text();
-  return [resp.status, raw ? JSON.parse(raw) : {}];
+  return [resp.status, parse(await resp.text())];
 }
 
-function fail(label, status, data) {
-  console.error(`failed   ${label}: ${status} ${data.message ?? JSON.stringify(data)}`);
+/** Parse a response body. Gateways can return HTML or plain text on errors. */
+function parse(raw) {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return { message: raw.slice(0, 200) };
+  }
+}
+
+function fail(message) {
+  console.error(`failed   ${message}`);
   process.exit(1);
 }
 
+/** Create the resource unless it exists, and return it. */
 async function create(label, path, body) {
   // Re-posting an existing AI Config can return 400 instead of 409, so check first.
-  if ((await request('GET', `${path}/${body.key}`))[0] === 200) return console.log(`exists   ${label}`);
+  const [existing, found] = await request('GET', `${path}/${body.key}`);
+  if (existing === 200) {
+    console.log(`exists   ${label}`);
+    return found;
+  }
   const [status, data] = await request('POST', path, body);
-  if (status === 200 || status === 201) console.log(`created  ${label}`);
-  else if (status === 409) console.log(`exists   ${label}`);
-  else fail(label, status, data);
+  if (status !== 200 && status !== 201) fail(`${label}: ${status} ${data.message ?? JSON.stringify(data)}`);
+  console.log(`created  ${label}`);
+  return data;
 }
 
 async function patch(label, path, body, semantic = false) {
   const [status, data] = await request('PATCH', path, body, semantic);
-  if (status !== 200 && status !== 201) fail(label, status, data);
+  if (status !== 200 && status !== 201) fail(`${label}: ${status} ${data.message ?? JSON.stringify(data)}`);
   console.log(`updated  ${label}`);
 }
 
 const model = (name) => ({ modelName: name, parameters: {}, custom: {} });
 
+const toolVersions = {};
 for (const [key, tool] of Object.entries(TOOLS)) {
-  await create(`tool ${key}`, 'ai-tools', {
+  const created = await create(`tool ${key}`, 'ai-tools', {
     key,
     name: key,
     description: tool.description,
     type: 'function',
     schema: tool.schema,
   });
+  toolVersions[key] = created.version;
 }
 
 for (const [key, prompt] of Object.entries(JUDGES)) {
@@ -121,26 +134,28 @@ for (const [key, prompt] of Object.entries(JUDGES)) {
   });
 }
 
-await create('config policy-agent', 'ai-configs', { key: 'policy-agent', name: 'Policy agent', mode: 'completion' });
+await create(`config ${CONFIG_KEY}`, 'ai-configs', { key: CONFIG_KEY, name: 'Policy agent', mode: 'completion' });
 for (const [key, prompt] of Object.entries(VARIATIONS)) {
-  await create(`policy-agent variation ${key}`, 'ai-configs/policy-agent/variations', {
+  await create(`${CONFIG_KEY} variation ${key}`, `ai-configs/${CONFIG_KEY}/variations`, {
     key,
     name: key,
     modelConfigKey: `OpenAI.${AGENT_MODEL}`,
     model: model(AGENT_MODEL),
     messages: [{ role: 'system', content: prompt }],
-    tools: Object.keys(TOOLS).map((k) => ({ key: k, version: 1 })),
+    tools: Object.entries(toolVersions).map(([k, version]) => ({ key: k, version })),
   });
-  await patch(`policy-agent variation ${key} judges`, `ai-configs/policy-agent/variations/${key}`, {
+  await patch(`${CONFIG_KEY} variation ${key} judges`, `ai-configs/${CONFIG_KEY}/variations/${key}`, {
     judgeConfiguration: { judges: Object.keys(JUDGES).map((j) => ({ judgeConfigKey: j, samplingRate: 1 })) },
   });
 }
 
-const [status, targeting] = await request('GET', 'ai-configs/policy-agent/targeting');
-if (status !== 200) fail('read policy-agent targeting', status, targeting);
+const [status, targeting] = await request('GET', `ai-configs/${CONFIG_KEY}/targeting`);
+if (status !== 200) fail(`read ${CONFIG_KEY} targeting: ${status} ${targeting.message ?? JSON.stringify(targeting)}`);
+const env = targeting.environments?.[ENVIRONMENT];
+if (!env) fail(`environment '${ENVIRONMENT}' not found in the project. Set LD_ENVIRONMENT_KEY.`);
 const ids = Object.fromEntries(targeting.variations.map((v) => [v.value._ldMeta.variationKey, v._id]));
 const instructions = [{ kind: 'updateFallthroughVariationOrRollout', variationId: ids.grounded }];
-if (!targeting.environments[ENVIRONMENT].rules?.length) {
+if (!env.rules?.length) {
   instructions.push({
     kind: 'addRule',
     description: 'Platinum members get concise answers',
@@ -149,8 +164,8 @@ if (!targeting.environments[ENVIRONMENT].rules?.length) {
   });
 }
 await patch(
-  'policy-agent targeting',
-  'ai-configs/policy-agent/targeting',
+  `${CONFIG_KEY} targeting`,
+  `ai-configs/${CONFIG_KEY}/targeting`,
   { environmentKey: ENVIRONMENT, instructions },
   true,
 );

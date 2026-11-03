@@ -2,18 +2,38 @@ name: Evals (pull request, Node.js)
 
 on:
   pull_request:
-    paths: ["node/**", "evals/datasets/**", "data/**"]
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: node
+concurrency:
+  group: evals-pr-node-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  offline-node:
+  changes-node:
     runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.diff.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      # The checkout is the pull request merged into its base branch, so HEAD^1 is the base.
+      - id: diff
+        run: |
+          if git diff --name-only HEAD^1 HEAD | grep -qE '^(node/|evals/datasets/|data/|\.github/workflows/evals-pr-node\.yml$)'; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  offline-node:
+    needs: changes-node
+    if: needs.changes-node.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,11 +42,13 @@ jobs:
       - run: npm test
 
   evals-node:
-    needs: offline-node
+    needs: [changes-node, offline-node]
+    # Pull requests from forks get no repository secrets, so they skip the evals.
+    if: needs.changes-node.outputs.app == 'true' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    # Advisory until the suite is stable: a failed eval shows on the PR but doesn't
-    # block the merge. Set the repository variable EVALS_BLOCKING to "true" to gate.
-    continue-on-error: ${{ vars.EVALS_BLOCKING != 'true' }}
+    defaults:
+      run:
+        working-directory: node
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,4 +60,17 @@ jobs:
           LD_API_TOKEN: ${{ secrets.LD_API_TOKEN }}
           LD_PROJECT_KEY: ${{ vars.LD_PROJECT_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: npm run evals -- --dataset ../evals/datasets/pr.jsonl --blocking
+        # Advisory until the repository variable EVALS_BLOCKING is "true": a failed
+        # eval shows in the job summary but doesn't fail the job.
+        run: npm run evals -- --dataset ../evals/datasets/pr.jsonl ${{ vars.EVALS_BLOCKING == 'true' && '--blocking' || '' }}
+
+  # The check to require. It reports on every pull request, including ones that skip
+  # the evals, and fails when any job above failed.
+  evals-gate-node:
+    needs: [changes-node, offline-node, evals-node]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "offline-node: ${{ needs.offline-node.result }}, evals-node: ${{ needs.evals-node.result }}"
+          [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]

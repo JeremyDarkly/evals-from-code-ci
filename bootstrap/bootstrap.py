@@ -6,9 +6,9 @@ that already exists is left as it is.
 Creates, in LD_PROJECT_KEY:
 - tool `search_member_policy`
 - judges `policy-accuracy` and `policy-tool-use`
-- AI Config `policy-agent` with variations `grounded` and `concise`, the
-  judges attached, `grounded` as the production fallthrough, and Platinum
-  members targeted to `concise`
+- AI Config `policy-agent` (or LD_AI_CONFIG_KEY) with variations `grounded` and
+  `concise`, the judges attached, `grounded` as the production fallthrough, and
+  Platinum members targeted to `concise`
 
 Needs LD_API_TOKEN with permission to write AI Configs in the project.
 """
@@ -19,8 +19,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from dotenv import load_dotenv
-
+from app.agent import CONFIG_KEY
 from app.tools import TOOLS
 
 BASE = os.environ.get("LD_API_BASE_URI", "https://app.launchdarkly.com").rstrip("/")
@@ -81,23 +80,22 @@ class LD:
         )
         try:
             with urllib.request.urlopen(req) as resp:
-                raw = resp.read()
-                return resp.status, json.loads(raw) if raw else {}
+                return resp.status, _parse(resp.read())
         except urllib.error.HTTPError as err:
-            return err.code, json.loads(err.read() or b"{}")
+            return err.code, _parse(err.read())
 
-    def create(self, label: str, path: str, body: dict) -> None:
+    def create(self, label: str, path: str, body: dict) -> dict:
+        """Create the resource unless it exists, and return it."""
         # Re-posting an existing AI Config can return 400 instead of 409, so check first.
-        if self.request("GET", f"{path}/{body['key']}")[0] == 200:
+        status, data = self.request("GET", f"{path}/{body['key']}")
+        if status == 200:
             print(f"exists   {label}")
-            return
+            return data
         status, data = self.request("POST", path, body)
-        if status in (200, 201):
-            print(f"created  {label}")
-        elif status == 409:
-            print(f"exists   {label}")
-        else:
+        if status not in (200, 201):
             sys.exit(f"failed   {label}: {status} {data.get('message', data)}")
+        print(f"created  {label}")
+        return data
 
     def patch(self, label: str, path: str, body: dict, semantic: bool = False) -> None:
         status, data = self.request("PATCH", path, body, semantic)
@@ -106,18 +104,27 @@ class LD:
         print(f"updated  {label}")
 
 
+def _parse(raw: bytes) -> dict:
+    """Parse a response body. Gateways can return HTML or plain text on errors."""
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:
+        return {"message": raw.decode(errors="replace")[:200]}
+
+
 def model(name: str) -> dict:
     return {"modelName": name, "parameters": {}, "custom": {}}
 
 
 def main() -> None:
-    load_dotenv()
     ld = LD()
 
+    tool_versions = {}
     for key, tool in TOOLS.items():
-        ld.create(f"tool {key}", "ai-tools", {
+        created = ld.create(f"tool {key}", "ai-tools", {
             "key": key, "name": key, "description": tool["description"], "type": "function", "schema": tool["schema"],
         })
+        tool_versions[key] = created["version"]
 
     for key, judge in JUDGES.items():
         ld.create(f"judge {key}", "ai-configs", {
@@ -132,30 +139,33 @@ def main() -> None:
             ],
         })
 
-    ld.create("config policy-agent", "ai-configs", {"key": "policy-agent", "name": "Policy agent", "mode": "completion"})
+    ld.create(f"config {CONFIG_KEY}", "ai-configs", {"key": CONFIG_KEY, "name": "Policy agent", "mode": "completion"})
     for key, prompt in VARIATIONS.items():
-        ld.create(f"policy-agent variation {key}", "ai-configs/policy-agent/variations", {
+        ld.create(f"{CONFIG_KEY} variation {key}", f"ai-configs/{CONFIG_KEY}/variations", {
             "key": key, "name": key, "modelConfigKey": f"OpenAI.{AGENT_MODEL}", "model": model(AGENT_MODEL),
             "messages": [{"role": "system", "content": prompt}],
-            "tools": [{"key": k, "version": 1} for k in TOOLS],
+            "tools": [{"key": k, "version": v} for k, v in tool_versions.items()],
         })
-        ld.patch(f"policy-agent variation {key} judges", f"ai-configs/policy-agent/variations/{key}", {
+        ld.patch(f"{CONFIG_KEY} variation {key} judges", f"ai-configs/{CONFIG_KEY}/variations/{key}", {
             "judgeConfiguration": {"judges": [{"judgeConfigKey": j, "samplingRate": 1} for j in JUDGES]},
         })
 
-    status, targeting = ld.request("GET", "ai-configs/policy-agent/targeting")
+    status, targeting = ld.request("GET", f"ai-configs/{CONFIG_KEY}/targeting")
     if status != 200:
-        sys.exit(f"failed   read policy-agent targeting: {status}")
+        sys.exit(f"failed   read {CONFIG_KEY} targeting: {status} {targeting.get('message', targeting)}")
+    env = targeting.get("environments", {}).get(ENVIRONMENT)
+    if env is None:
+        sys.exit(f"failed   environment {ENVIRONMENT!r} not found in the project. Set LD_ENVIRONMENT_KEY.")
     ids = {v["value"]["_ldMeta"].get("variationKey"): v["_id"] for v in targeting["variations"]}
     instructions = [{"kind": "updateFallthroughVariationOrRollout", "variationId": ids["grounded"]}]
-    if not targeting["environments"][ENVIRONMENT].get("rules"):
+    if not env.get("rules"):
         instructions.append({
             "kind": "addRule",
             "description": "Platinum members get concise answers",
             "clauses": [{"contextKind": "user", "attribute": "plan_tier", "op": "in", "values": ["platinum"], "negate": False}],
             "variationId": ids["concise"],
         })
-    ld.patch("policy-agent targeting", "ai-configs/policy-agent/targeting",
+    ld.patch(f"{CONFIG_KEY} targeting", f"ai-configs/{CONFIG_KEY}/targeting",
              {"environmentKey": ENVIRONMENT, "instructions": instructions}, semantic=True)
 
     print("\nNext: upload evals/datasets/full.jsonl as dataset `policy-agent-full` under Library > Datasets.")

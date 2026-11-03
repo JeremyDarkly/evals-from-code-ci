@@ -18,8 +18,13 @@ const STOPWORDS = new Set(
     'the to what when where which who will with you your me am').split(' '),
 );
 
+/** Strip a plural s, so "copay" matches documents that only say "copays". */
+function stem(token) {
+  return token.length > 3 && token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1) : token;
+}
+
 function tokenize(text) {
-  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((t) => !STOPWORDS.has(t));
+  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((t) => !STOPWORDS.has(t)).map(stem);
 }
 
 function countTerms(tokens) {

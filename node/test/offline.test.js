@@ -29,6 +29,11 @@ test('search finds the copays document', () => {
   assert.ok(ids.includes('TH-HMO-GOLD-2024-copays-in-network'));
 });
 
+test('search matches singular and plural', () => {
+  const ids = search('primary care copay', 'TH-HMO-GOLD-2024').map((d) => d.docId);
+  assert.ok(ids.includes('TH-HMO-GOLD-2024-copays-in-network'));
+});
+
 test('search rejects unknown plan', () => {
   assert.throws(() => search('copay', 'TH-NOPE-2024'));
 });
@@ -76,6 +81,10 @@ test('states-key-figures is fractional', () => {
   const row = { metadata: { must_include: ['$6,500', '$750'] } };
   assert.equal(statesKeyFigures(row, 'Your deductible is $6,500.'), 0.5);
   assert.equal(statesKeyFigures(row, '$6,500 deductible, $750 HSA'), 1);
+});
+
+test('states-key-figures fails a row without figures', () => {
+  assert.equal(statesKeyFigures({}, '$6,500 deductible'), 0);
 });
 
 test('cites-source', () => {

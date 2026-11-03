@@ -9,10 +9,14 @@ DOC_ID = re.compile(r"\b(TH-[A-Z]+-[A-Z]+-2024|claims-preauth|pharmacy-benefits|
 
 
 def states_key_figures(row: DatasetRow, output: str | None) -> float:
-    """Fraction of the row's `must_include` strings that appear in the answer."""
+    """Fraction of the row's `must_include` strings that appear in the answer.
+
+    Every row lists at least one figure, so a row without any scores 0. That
+    catches a hosted dataset that lost its metadata instead of passing it.
+    """
     required = (row.metadata or {}).get("must_include", [])
     if not required:
-        return 1.0
+        return 0.0
     text = (output or "").lower()
     return sum(1 for s in required if s.lower() in text) / len(required)
 

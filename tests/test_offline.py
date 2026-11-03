@@ -30,6 +30,11 @@ def test_search_finds_the_copays_document():
     assert "TH-HMO-GOLD-2024-copays-in-network" in ids
 
 
+def test_search_matches_singular_and_plural():
+    ids = [d.doc_id for d in retriever.search("primary care copay", "TH-HMO-GOLD-2024")]
+    assert "TH-HMO-GOLD-2024-copays-in-network" in ids
+
+
 def test_search_rejects_unknown_plan():
     with pytest.raises(ValueError):
         retriever.search("copay", "TH-NOPE-2024")
@@ -71,6 +76,10 @@ def test_states_key_figures_is_fractional():
     row = DatasetRow(row_index=0, metadata={"must_include": ["$6,500", "$750"]})
     assert states_key_figures(row, "Your deductible is $6,500.") == 0.5
     assert states_key_figures(row, "$6,500 deductible, $750 HSA") == 1.0
+
+
+def test_states_key_figures_fails_a_row_without_figures():
+    assert states_key_figures(DatasetRow(row_index=0), "$6,500 deductible") == 0.0
 
 
 def test_cites_source():

@@ -29,8 +29,13 @@ class Document:
     terms: Counter
 
 
+def _stem(token: str) -> str:
+    """Strip a plural s, so "copay" matches documents that only say "copays"."""
+    return token[:-1] if len(token) > 3 and token.endswith("s") and not token.endswith("ss") else token
+
+
 def _tokenize(text: str) -> list[str]:
-    return [t for t in re.findall(r"[a-z0-9]+", text.lower()) if t not in STOPWORDS]
+    return [_stem(t) for t in re.findall(r"[a-z0-9]+", text.lower()) if t not in STOPWORDS]
 
 
 def _plan_for(doc_id: str) -> str | None:

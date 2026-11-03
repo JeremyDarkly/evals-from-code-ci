@@ -7,6 +7,7 @@ import { isMain, loadEnv } from './env.js';
 import { getMember } from './members.js';
 import { TOOL_HANDLERS } from './tools.js';
 
+loadEnv();
 export const CONFIG_KEY = process.env.LD_AI_CONFIG_KEY ?? 'policy-agent';
 
 let cachedHandler;
@@ -32,7 +33,6 @@ export async function answer(question, member) {
 }
 
 if (isMain(import.meta.url)) {
-  loadEnv();
   const [memberId, question] = process.argv.slice(2);
   if (!memberId || !question) {
     console.error('Usage: npm run agent -- <member_id> "<question>"');

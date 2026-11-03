@@ -7,10 +7,15 @@ import { Scorer } from '@launchdarkly/ai-node';
 
 const DOC_ID = /\b(TH-[A-Z]+-[A-Z]+-2024|claims-preauth|pharmacy-benefits|special-programs)-[a-z0-9-]+/;
 
-/** Fraction of the row's `must_include` strings that appear in the answer. */
+/**
+ * Fraction of the row's `must_include` strings that appear in the answer.
+ *
+ * Every row lists at least one figure, so a row without any scores 0. That
+ * catches a hosted dataset that lost its metadata instead of passing it.
+ */
 export function statesKeyFigures(row, output) {
   const required = row.metadata?.must_include ?? [];
-  if (!required.length) return 1;
+  if (!required.length) return 0;
   const text = String(output ?? '').toLowerCase();
   return required.filter((s) => text.includes(s.toLowerCase())).length / required.length;
 }

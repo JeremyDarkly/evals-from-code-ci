@@ -12,6 +12,7 @@ from launchdarkly_ai_server import ProviderHandler, config, init_client, shutdow
 from .members import Member, get_member
 from .tools import TOOL_HANDLERS
 
+load_dotenv()
 CONFIG_KEY = os.environ.get("LD_AI_CONFIG_KEY", "policy-agent")
 
 @lru_cache(maxsize=1)
@@ -32,7 +33,6 @@ async def answer(question: str, member: Member) -> str:
 
 
 async def main() -> None:
-    load_dotenv()
     if len(sys.argv) != 3:
         sys.exit('Usage: python -m app.agent <member_id> "<question>"')
     await init_client({"sdkKey": os.environ["LD_SDK_KEY"]})
