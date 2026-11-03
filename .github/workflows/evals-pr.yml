@@ -1,0 +1,37 @@
+name: Evals (pull request)
+
+on:
+  pull_request:
+    paths: ["app/**", "evals/**", "data/**", "requirements.txt"]
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+
+  evals:
+    needs: offline
+    runs-on: ubuntu-latest
+    # Advisory until the suite is stable: a failed eval shows on the PR but doesn't
+    # block the merge. Set the repository variable EVALS_BLOCKING to "true" to gate.
+    continue-on-error: ${{ vars.EVALS_BLOCKING != 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Run the PR eval set
+        env:
+          LD_SDK_KEY: ${{ secrets.LD_SDK_KEY }}
+          LD_API_TOKEN: ${{ secrets.LD_API_TOKEN }}
+          LD_PROJECT_KEY: ${{ vars.LD_PROJECT_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python -m evals.run_evals --dataset evals/datasets/pr.jsonl --blocking

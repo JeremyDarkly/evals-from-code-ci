@@ -1,0 +1,4 @@
+launchdarkly-ai-server[ld]==1.0.0
+launchdarkly-ai-openai-messages==1.0.0
+python-dotenv>=1.0
+pytest>=8
