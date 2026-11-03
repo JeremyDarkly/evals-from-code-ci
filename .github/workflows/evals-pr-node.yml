@@ -12,7 +12,7 @@ defaults:
     working-directory: node
 
 jobs:
-  offline:
+  offline-node:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,8 +21,8 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  evals:
-    needs: offline
+  evals-node:
+    needs: offline-node
     runs-on: ubuntu-latest
     # Advisory until the suite is stable: a failed eval shows on the PR but doesn't
     # block the merge. Set the repository variable EVALS_BLOCKING to "true" to gate.

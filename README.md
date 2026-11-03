@@ -66,7 +66,7 @@ python -m evals.run_evals --dataset-key policy-agent-full --variation grounded
 
 Add the secrets `LD_SDK_KEY`, `LD_API_TOKEN` and `OPENAI_API_KEY`, and the variable `LD_PROJECT_KEY`.
 
-The PR check starts as advisory: a failed eval shows on the pull request but doesn't block the merge. Once the suite is stable, set the repository variable `EVALS_BLOCKING` to `true` and make the `evals` job a required check.
+The PR check starts as advisory: a failed eval shows on the pull request but doesn't block the merge. Once the suite is stable, set the repository variable `EVALS_BLOCKING` to `true` and make the `evals` job, or `evals-node` for the Node.js version, a required check.
 
 ## Prompt and response capture
 
