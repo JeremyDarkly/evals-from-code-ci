@@ -21,7 +21,7 @@ The demo app is a health insurance policy agent for a fictional insurer, ToggleH
 ## Setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in the four values
 pytest -q              # offline, no API calls
