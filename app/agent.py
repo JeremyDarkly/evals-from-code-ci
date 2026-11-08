@@ -1,4 +1,4 @@
-"""The production entry point: answer one member question with the policy_agent config."""
+"""The production entry point: answer one member question with the policy-agent AI Config."""
 
 import asyncio
 import os
